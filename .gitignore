@@ -1,3 +1,5 @@
+# all the files that are not supposed to be pushed on github
+
 # Environment
 .env
 .env.local
