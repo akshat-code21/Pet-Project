@@ -5,7 +5,6 @@ build-backend = "hatchling.build"
 [project]
 name = "hedge-fund-intelligence"
 version = "0.1.0"
-requires-python = ">=3.12"
 dependencies = [
     # Framework
     "fastapi>=0.115",
