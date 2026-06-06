@@ -1,0 +1,1 @@
+// InvestorCard component

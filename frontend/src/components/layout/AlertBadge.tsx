@@ -1,0 +1,1 @@
+// AlertBadge component
