@@ -66,6 +66,9 @@ dev = [
     "ruff>=0.8",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["app", "api", "agents", "database", "ingestion", "jobs", "models", "schemas", "services"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

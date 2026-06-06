@@ -38,7 +38,7 @@ class Alert(Base):
     score: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    extra_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
