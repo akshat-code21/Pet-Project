@@ -41,7 +41,7 @@ class ContentItem(Base):
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
     processing_status: Mapped[str] = mapped_column(ProcessingStatusEnum, nullable=False, default="pending")
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    extra_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

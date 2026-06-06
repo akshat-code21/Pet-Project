@@ -20,16 +20,19 @@ def upgrade() -> None:
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
 
     # ENUM types
-    op.execute("CREATE TYPE source_type AS ENUM ('sec_13f','website','youtube','rss','twitter','custom')")
-    op.execute("CREATE TYPE content_type AS ENUM ('filing','article','video','newsletter','website_page','custom')")
-    op.execute("CREATE TYPE processing_status AS ENUM ('pending','processing','completed','failed','skipped')")
-    op.execute("CREATE TYPE entity_type AS ENUM ('company','ticker','person','theme','sector','macro_theme')")
-    op.execute("CREATE TYPE sentiment AS ENUM ('bullish','bearish','neutral','mixed')")
-    op.execute("CREATE TYPE conviction_level AS ENUM ('high','medium','low','unknown')")
-    op.execute("CREATE TYPE portfolio_change_type AS ENUM ('new_position','increased','decreased','closed','unchanged')")
-    op.execute("CREATE TYPE report_type AS ENUM ('investor_report','daily_digest','event_report')")
-    op.execute("CREATE TYPE alert_type AS ENUM ('new_filing','new_company_mention','new_thesis','high_conviction','portfolio_change','daily_digest_ready')")
-    op.execute("CREATE TYPE alert_severity AS ENUM ('low','medium','high','critical')")
+    for type_sql in [
+        "DO $$ BEGIN CREATE TYPE source_type AS ENUM ('sec_13f','website','youtube','rss','twitter','custom'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE content_type AS ENUM ('filing','article','video','newsletter','website_page','custom'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE processing_status AS ENUM ('pending','processing','completed','failed','skipped'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE entity_type AS ENUM ('company','ticker','person','theme','sector','macro_theme'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE sentiment AS ENUM ('bullish','bearish','neutral','mixed'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE conviction_level AS ENUM ('high','medium','low','unknown'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE portfolio_change_type AS ENUM ('new_position','increased','decreased','closed','unchanged'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE report_type AS ENUM ('investor_report','daily_digest','event_report'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE alert_type AS ENUM ('new_filing','new_company_mention','new_thesis','high_conviction','portfolio_change','daily_digest_ready'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE alert_severity AS ENUM ('low','medium','high','critical'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+    ]:
+        op.execute(type_sql)
 
     # users
     op.create_table(
