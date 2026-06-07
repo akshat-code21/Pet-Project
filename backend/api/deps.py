@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import AsyncGenerator
 
 import structlog
@@ -43,8 +44,26 @@ async def get_current_user(
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
+
     if user is None:
-        raise credentials_exception
+        # Supabase verified this user but they don't have a local row yet
+        # (e.g. signed up via Supabase dashboard or email confirmation flow
+        # before the local sync happened). Auto-provision them so they can use
+        # the API immediately without having to go through /auth/signup again.
+        try:
+            user = User(
+                id=uuid.UUID(user_id),
+                email=resp.user.email or "",
+                full_name=(resp.user.user_metadata or {}).get("full_name"),
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+            logger.info("Auto-provisioned local user", user_id=user_id, email=user.email)
+        except Exception as e:
+            logger.error("Failed to auto-provision user", user_id=user_id, error=str(e))
+            raise credentials_exception
+
     return user
 
 

@@ -35,6 +35,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "newspaper3k>=0.2.8",
     "lxml>=5.3",
+    "lxml_html_clean>=0.1",
     "pdfplumber>=0.11",
     "trafilatura>=2.0",
     "yt-dlp>=2024.12",
