@@ -161,60 +161,33 @@ On the investor detail page, go to the **Sources** tab.
 4. Wait 10–30 seconds, then **refresh the page**
 5. ✅ The **Content tab** should now show ingested items
 
-### Option B — Admin API (Direct)
+### Option B — Settings Control Panel (UI Trigger)
 
-If Sync doesn't seem to work (e.g., sources need time), trigger specific jobs manually via cURL:
+You can trigger specific ingestion jobs on demand directly from the UI:
 
-```bash
-# Get your auth token first
-TOKEN="your-supabase-access-token"
-
-# Trigger SEC 13F ingestion for all investors
-curl -X POST http://localhost:8000/api/v1/admin/jobs/trigger \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"job": "ingest_sec_13f"}'
-
-# Trigger RSS ingestion
-curl -X POST http://localhost:8000/api/v1/admin/jobs/trigger \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"job": "ingest_rss"}'
-
-# Trigger website ingestion
-curl -X POST http://localhost:8000/api/v1/admin/jobs/trigger \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"job": "ingest_websites"}'
-
-# Trigger YouTube ingestion
-curl -X POST http://localhost:8000/api/v1/admin/jobs/trigger \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"job": "ingest_youtube"}'
-```
-
-### Check Ingestion Status
-
-```bash
-curl http://localhost:8000/api/v1/admin/jobs/status \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-This returns: scheduler status, pending content items count, and job schedule.
+1. Go to the **Settings** page (`/settings`) from the sidebar.
+2. Scroll down to the **Scheduler & Ingestion Controls** card.
+3. Review the status badges: **Scheduler Status** (Active & Running) and **Pending Items** (number of raw items waiting to be processed).
+4. Locate the ingestion job you want to run (e.g. `SEC 13F Ingestion`, `RSS News Ingestion`, etc.) and click **Run Now**.
+5. The button will show a loading spinner, and a success toast will confirm when the ingestion completes.
 
 ---
 
 ## Flow 6: AI Processing Pipeline
 
-After ingestion, content items have `processing_status = "pending"`. The pipeline processes them automatically via APScheduler, but you can also trigger it manually:
+After ingestion, content items start with `processing_status = "pending"`. The pipeline processes them automatically in the background, but you can also trigger it manually from the UI:
 
-```bash
-curl -X POST http://localhost:8000/api/v1/admin/jobs/trigger \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"job": "process_pending"}'
-```
+### Option A — Via Content tab (Recommended)
+
+1. Go to the investor detail page → **Content** tab.
+2. Since there are pending content items, a **"Process Content"** button will appear in the tab header next to "Content Timeline".
+3. Click **"Process Content"** to trigger processing.
+4. Once completed, the button disappears and the timeline items will show a green `completed` badge.
+
+### Option B — Via Settings page
+
+1. Navigate to **Settings → Scheduler & Ingestion Controls**.
+2. Click **Run Now** next to **Process Pending Content**.
 
 ### What the pipeline does (per item):
 
@@ -230,6 +203,7 @@ curl -X POST http://localhost:8000/api/v1/admin/jobs/trigger \
    - ✅ Items should show `completed` processing status
 2. Go to investor detail → **Alerts tab**
    - ✅ Alerts should appear if significant content was detected
+
 
 ---
 
@@ -250,16 +224,14 @@ If SEC 13F data was ingested:
 
 ### From the Frontend
 
-There's no direct "Generate Report" button on the UI, but reports are auto-generated. To manually trigger:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/reports/generate \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"investor_id": "YOUR_INVESTOR_UUID"}'
-```
+1. Go to the investor detail page (`/investors/{id}`).
+2. In the top-right header (next to Sync and Edit), click the **"Generate Report"** button.
+   - *Alternative*: If no reports exist yet for the investor, go to the **Reports** tab and click **"Generate First Report"**.
+3. A toast notification will appear, and the button will show a loading spinner.
+4. Once completed (usually 10-20 seconds), a success toast appears and the new report automatically populates in the **Reports** tab!
 
 ### View Reports
+
 
 1. Go to **Reports** page (`/reports`) from the sidebar
 2. ✅ You should see reports listed with:
@@ -366,14 +338,11 @@ curl -X POST http://localhost:8000/api/v1/reports/generate \
 
 ## Flow 13: Daily Digest (Background Job)
 
-The scheduler automatically runs a daily digest job. To trigger manually:
+The scheduler automatically runs a daily digest job. To trigger manually from the UI:
 
-```bash
-curl -X POST http://localhost:8000/api/v1/admin/jobs/trigger \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"job": "daily_digest"}'
-```
+1. Navigate to **Settings → Scheduler & Ingestion Controls**.
+2. Click **Run Now** next to **Generate Daily Digest**.
+
 
 This:
 1. Generates a summary report across all investors
@@ -436,7 +405,8 @@ Reports
   [ ] Reports list page with type filter
   [ ] Report detail page renders markdown
   [ ] Auto mark-as-read on open
-  [ ] Generate report via API
+  [ ] Generate report via "Generate Report" UI button
+  [ ] Generate first report via empty state "Generate First Report" button
 
 Alerts
   [ ] Alerts page with severity filter
@@ -453,5 +423,6 @@ Settings
   [ ] Theme toggle (light/dark/system)
   [ ] Notification toggles
   [ ] Password change
+  [ ] Trigger scheduler jobs (e.g. process pending, ingest) via Settings UI
   [ ] Sign out
 ```
