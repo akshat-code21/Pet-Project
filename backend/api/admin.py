@@ -31,13 +31,39 @@ async def trigger_job(
     body: dict,
     current_user: User = Depends(get_current_user),
 ):
+    """Immediately run a scheduled job and return its result."""
     job_name = body.get("job", "")
+
+    JOB_MAP = {
+        "process_pending": "jobs.processing_job.process_pending_content",
+        "ingest_rss": "jobs.ingestion_job.run_ingestion_for_source_type",
+        "ingest_websites": "jobs.ingestion_job.run_ingestion_for_source_type",
+        "ingest_youtube": "jobs.ingestion_job.run_ingestion_for_source_type",
+        "ingest_sec_13f": "jobs.ingestion_job.run_ingestion_for_source_type",
+        "daily_digest": "jobs.digest_job.run_daily_digest",
+    }
+
+    if job_name not in JOB_MAP:
+        return {"error": f"Unknown job '{job_name}'. Valid jobs: {list(JOB_MAP)}"}
+
     try:
-        from jobs.scheduler import get_scheduler
-        scheduler = get_scheduler()
-        job = scheduler.get_job(job_name)
-        if job:
-            job.modify(next_run_time=__import__("datetime").datetime.utcnow())
-        return {"message": f"job {job_name} triggered"}
+        module_path, func_name = JOB_MAP[job_name].rsplit(".", 1)
+        import importlib
+        mod = importlib.import_module(module_path)
+        fn = getattr(mod, func_name)
+
+        # Pass source_type argument for ingestion jobs
+        source_type_map = {
+            "ingest_rss": "rss",
+            "ingest_websites": "website",
+            "ingest_youtube": "youtube",
+            "ingest_sec_13f": "sec_13f",
+        }
+        if job_name in source_type_map:
+            result = await fn(source_type_map[job_name])
+        else:
+            result = await fn()
+
+        return {"message": f"job '{job_name}' complete", "result": result}
     except Exception as e:
-        return {"message": f"trigger attempted: {e}"}
+        return {"error": str(e)}

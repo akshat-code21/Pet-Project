@@ -13,21 +13,27 @@ import structlog
 logger = structlog.get_logger()
 
 
-async def run_ingestion_for_investor(investor_id: str) -> dict:
-    """Trigger ingestion for ALL active sources belonging to one investor."""
+async def run_ingestion_for_investor(investor_id) -> dict:
+    """Trigger ingestion for ALL active sources belonging to one investor.
+
+    Accepts investor_id as either a str or uuid.UUID.
+    """
     from database.connection import AsyncSessionLocal
     from models.source import Source
     from sqlalchemy import select
+
+    # Normalize: accept both str and uuid.UUID
+    investor_uuid = investor_id if isinstance(investor_id, uuid.UUID) else uuid.UUID(str(investor_id))
 
     async with AsyncSessionLocal() as db:
         sources = (
             await db.execute(
                 select(Source)
-                .where(Source.investor_id == uuid.UUID(investor_id), Source.is_active.is_(True))
+                .where(Source.investor_id == investor_uuid, Source.is_active.is_(True))
             )
         ).scalars().all()
 
-    results = {"investor_id": investor_id, "processed": 0, "failed": 0, "skipped": 0}
+    results = {"investor_id": str(investor_uuid), "processed": 0, "failed": 0, "skipped": 0}
     for source in sources:
         r = await _ingest_source(source)
         results["processed"] += r.get("new_items", 0)
@@ -116,7 +122,7 @@ async def _ingest_source(source) -> dict:
                 raw_text=raw_text,
                 content_hash=content_hash,
                 processing_status="pending",
-                metadata={
+                extra_metadata={
                     "source_url": doc.metadata.get("source", source.url),
                     "title": doc.metadata.get("title", ""),
                     "published_at": doc.metadata.get("published", ""),

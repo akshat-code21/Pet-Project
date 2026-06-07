@@ -94,7 +94,7 @@ async def _generate_digest_for_user(user) -> bool:
     for item in new_items[:20]:  # cap at 20 for token budget
         name = investor_map.get(str(item.investor_id), "Unknown")
         snippet = (item.cleaned_text or item.raw_text or "")[:500]
-        url = (item.metadata or {}).get("source_url", "")
+        url = (item.extra_metadata or {}).get("source_url", "")
         content_summaries.append(f"[{name}] ({item.content_type}) {url}\n{snippet}")
 
     content_block = "\n\n---\n\n".join(content_summaries)

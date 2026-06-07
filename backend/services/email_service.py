@@ -75,7 +75,7 @@ async def send_alert_email(user_id: str, alert) -> None:
 
     try:
         resend.Emails.send({
-            "from": "alerts@updates.hedgefundintelligence.com",
+            "from": "alerts@akshat21.me",
             "to": [user.email],
             "subject": f"{severity_emoji} {alert.title}",
             "html": html_body,
@@ -141,7 +141,7 @@ async def send_digest_email(user_email: str, user_name: str | None, report_markd
 
     try:
         resend.Emails.send({
-            "from": "digest@updates.hedgefundintelligence.com",
+            "from": "digest@akshat21.me",
             "to": [user_email],
             "subject": "📊 Your Daily Hedge Fund Intelligence Digest",
             "html": html_body,

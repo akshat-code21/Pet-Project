@@ -75,7 +75,10 @@ async def sync_investor(
     investor = await svc.get_investor(db, investor_id, current_user.id)
     if not investor:
         raise HTTPException(status_code=404, detail="Investor not found")
+
     from jobs.ingestion_job import run_ingestion_for_investor
-    import asyncio
-    asyncio.create_task(run_ingestion_for_investor(investor_id))
-    return {"message": "sync queued", "job_id": str(investor_id)}
+    # Await directly so the response tells you what was ingested (or what failed).
+    # The scheduler uses fire-and-forget; the API endpoint is synchronous so you
+    # can see results immediately.
+    result = await run_ingestion_for_investor(investor_id)
+    return {"message": "sync complete", **result}

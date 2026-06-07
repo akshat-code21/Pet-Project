@@ -5,7 +5,6 @@ build-backend = "hatchling.build"
 [project]
 name = "hedge-fund-intelligence"
 version = "0.1.0"
-requires-python = ">=3.12"
 dependencies = [
     # Framework
     "fastapi>=0.115",
@@ -20,7 +19,6 @@ dependencies = [
 
     # Auth
     "supabase>=2.10",
-    "python-jose[cryptography]>=3.3",
 
     # LangChain stack
     "langchain-community==0.3.13",

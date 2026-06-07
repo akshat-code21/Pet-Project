@@ -85,8 +85,8 @@ async def _run_pipeline_for_item(item) -> bool:
             await _mark_failed(content_item_id, "investor or user not found")
             return False
 
-        source_url = (item.metadata or {}).get("source_url", "")
-        filing_period = (item.metadata or {}).get("filing_period", "")
+        source_url = (item.extra_metadata or {}).get("source_url", "")
+        filing_period = (item.extra_metadata or {}).get("filing_period", "")
 
         initial_state: PipelineState = {
             "content_item_id": content_item_id,
@@ -155,7 +155,7 @@ async def _mark_failed(content_item_id: str, error: str) -> None:
         ).scalar_one_or_none()
         if item:
             item.processing_status = "failed"
-            item.metadata = {**(item.metadata or {}), "error": error}
+            item.extra_metadata = {**(item.extra_metadata or {}), "error": error}
             await db.commit()
 
 
@@ -192,7 +192,7 @@ async def trigger_report_generation(investor_id: str, user_id: str) -> dict:
 
     # Use the most recent item as the trigger
     item = recent_items[0]
-    source_url = (item.metadata or {}).get("source_url", "")
+    source_url = (item.extra_metadata or {}).get("source_url", "")
 
     initial_state: PipelineState = {
         "content_item_id": str(item.id),
