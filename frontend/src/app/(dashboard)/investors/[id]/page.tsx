@@ -1,5 +1,4 @@
 'use client'
-import { use } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { ArrowLeft, Edit, RefreshCw, FileText, Activity, Bell, Loader2 } from 'lucide-react'
@@ -18,8 +17,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useToast } from '@/hooks/use-toast'
 import { formatRelative, formatDate } from '@/lib/utils'
 
-export default function InvestorDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function InvestorDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params
   const { data: investor, isLoading } = useInvestor(id)
   const { data: reportsData } = useReports({ investor_id: id, limit: 10 })
   const { data: alertData } = useAlerts({ investor_id: id })

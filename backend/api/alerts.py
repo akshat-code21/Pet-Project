@@ -8,7 +8,7 @@ import services.alert_service as svc
 
 router = APIRouter()
 
-@router.get("", response_model=AlertListResponse)
+@router.get("", response_model=AlertListResponse, response_model_by_alias=True)
 async def list_alerts(
     investor_id: uuid.UUID | None = Query(None),
     severity: str | None = Query(None),
@@ -26,7 +26,7 @@ async def list_alerts(
         total=total,
     )
 
-@router.put("/{alert_id}/read", response_model=AlertResponse)
+@router.patch("/{alert_id}/read", response_model=AlertResponse, response_model_by_alias=True)
 async def mark_read(
     alert_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
@@ -35,9 +35,9 @@ async def mark_read(
     alert = await svc.mark_alert_read(db, alert_id, current_user.id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    return alert
+    return AlertResponse.model_validate(alert)
 
-@router.put("/read-all")
+@router.patch("/read-all")
 async def mark_all_read(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
