@@ -85,8 +85,8 @@ async def _run_pipeline_for_item(item) -> bool:
             await _mark_failed(content_item_id, "investor or user not found")
             return False
 
-        source_url = (item.metadata or {}).get("source_url", "")
-        filing_period = (item.metadata or {}).get("filing_period", "")
+        source_url = (item.extra_metadata or {}).get("source_url", "")
+        filing_period = (item.extra_metadata or {}).get("filing_period", "")
 
         initial_state: PipelineState = {
             "content_item_id": content_item_id,
@@ -155,11 +155,11 @@ async def _mark_failed(content_item_id: str, error: str) -> None:
         ).scalar_one_or_none()
         if item:
             item.processing_status = "failed"
-            item.metadata = {**(item.metadata or {}), "error": error}
+            item.extra_metadata = {**(item.extra_metadata or {}), "error": error}
             await db.commit()
 
 
-async def trigger_report_generation(investor_id: str, user_id: str) -> dict:
+async def trigger_report_generation(investor_id: str, user_id: str, period_days: int = 30) -> dict:
     """
     On-demand: generate a report for an investor from their most recent
     completed content items (called from POST /investors/{id}/report).
@@ -171,15 +171,18 @@ async def trigger_report_generation(investor_id: str, user_id: str) -> dict:
     from agents.pipeline import run_pipeline
     from agents.state import PipelineState
 
+    investor_uuid = investor_id if isinstance(investor_id, uuid.UUID) else uuid.UUID(investor_id)
+    user_uuid = user_id if isinstance(user_id, uuid.UUID) else uuid.UUID(user_id)
+
     async with AsyncSessionLocal() as db:
         investor = (
-            await db.execute(select(Investor).where(Investor.id == uuid.UUID(investor_id)))
+            await db.execute(select(Investor).where(Investor.id == investor_uuid))
         ).scalar_one_or_none()
         recent_items = (
             await db.execute(
                 select(ContentItem)
                 .where(
-                    ContentItem.investor_id == uuid.UUID(investor_id),
+                    ContentItem.investor_id == investor_uuid,
                     ContentItem.processing_status == "completed",
                 )
                 .order_by(desc(ContentItem.created_at))
@@ -192,12 +195,12 @@ async def trigger_report_generation(investor_id: str, user_id: str) -> dict:
 
     # Use the most recent item as the trigger
     item = recent_items[0]
-    source_url = (item.metadata or {}).get("source_url", "")
+    source_url = (item.extra_metadata or {}).get("source_url", "")
 
     initial_state: PipelineState = {
         "content_item_id": str(item.id),
-        "investor_id": investor_id,
-        "user_id": user_id,
+        "investor_id": str(investor_uuid),
+        "user_id": str(user_uuid),
         "content_type": item.content_type,
         "raw_text": item.raw_text or "",
         "source_url": source_url,
@@ -210,7 +213,7 @@ async def trigger_report_generation(investor_id: str, user_id: str) -> dict:
         "report_triggered": True,
         "alerts_created": [],
         "error": None,
-        "investor_name": investor.name if investor else investor_id,
+        "investor_name": investor.name if investor else str(investor_uuid),
         "filing_period": "",
     }
 

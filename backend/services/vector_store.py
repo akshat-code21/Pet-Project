@@ -16,7 +16,7 @@ def get_vector_store() -> PGVector:
                 api_key=settings.openai_api_key,
             ),
             collection_name="hedge_fund_content",
-            connection=settings.database_url,
+            connection=settings.database_url_sync,
             use_jsonb=True,
         )
     return _store

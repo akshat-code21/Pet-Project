@@ -33,7 +33,7 @@ async def get_report(
         raise HTTPException(status_code=404, detail="Report not found")
     return report
 
-@router.put("/{report_id}/read", response_model=ReportResponse)
+@router.patch("/{report_id}/read", response_model=ReportResponse)
 async def mark_read(
     report_id: uuid.UUID,
     current_user: User = Depends(get_current_user),

@@ -1,15 +1,16 @@
 'use client'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bell, BellOff, Filter, CheckCheck } from 'lucide-react'
+import Link from 'next/link'
+import { Bell, BellOff, CheckCheck, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAlerts, useMarkAlertRead, useMarkAllAlertsRead } from '@/hooks/useAlerts'
+import { useInvestors } from '@/hooks/useInvestors'
 import { useToast } from '@/hooks/use-toast'
-import { formatRelative, capitalise } from '@/lib/utils'
-import { cn } from '@/lib/utils'
+import { formatRelative, capitalise, cn } from '@/lib/utils'
 
 const severityConfig = {
   critical: { variant: 'critical', dot: 'bg-red-500', ring: 'ring-red-500/20' },
@@ -20,11 +21,14 @@ const severityConfig = {
 
 export default function AlertsPage() {
   const [severity, setSeverity] = useState<string>('all')
+  const [investorId, setInvestorId] = useState<string>('all')
   const [unreadOnly, setUnreadOnly] = useState(false)
   const { data, isLoading } = useAlerts({
     severity: severity !== 'all' ? severity : undefined,
+    investor_id: investorId !== 'all' ? investorId : undefined,
     unread_only: unreadOnly || undefined,
   })
+  const { data: investors } = useInvestors()
   const { mutate: markRead } = useMarkAlertRead()
   const { mutate: markAll } = useMarkAllAlertsRead()
   const { toast } = useToast()
@@ -40,7 +44,7 @@ export default function AlertsPage() {
             ) : 'All caught up'} · {data?.total ?? 0} total
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant={unreadOnly ? 'default' : 'outline'}
             size="sm"
@@ -67,6 +71,17 @@ export default function AlertsPage() {
               <SelectItem value="high">High</SelectItem>
               <SelectItem value="medium">Medium</SelectItem>
               <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={investorId} onValueChange={setInvestorId}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All investors" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All investors</SelectItem>
+              {(investors ?? []).map((inv) => (
+                <SelectItem key={inv.id} value={inv.id}>{inv.name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -118,7 +133,20 @@ export default function AlertsPage() {
                       <Badge variant="outline" className="text-[10px]">{capitalise(alert.alert_type)}</Badge>
                     </div>
                     {alert.summary && <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{alert.summary}</p>}
-                    <p className="text-xs text-muted-foreground/60 mt-1.5">{formatRelative(alert.created_at)}</p>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <p className="text-xs text-muted-foreground/60">{formatRelative(alert.created_at)}</p>
+                      {alert.investor_name && (
+                        <span className="text-xs text-muted-foreground">· {alert.investor_name}</span>
+                      )}
+                      {alert.report_id && (
+                        <Link href={`/reports/${alert.report_id}`} onClick={(e) => e.stopPropagation()}>
+                          <span className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                            <ExternalLink className="w-3 h-3" />
+                            View Report
+                          </span>
+                        </Link>
+                      )}
+                    </div>
                   </div>
 
                   {!alert.is_read && (

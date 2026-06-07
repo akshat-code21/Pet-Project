@@ -16,7 +16,7 @@ class ContentItemResponse(BaseModel):
     published_at: datetime | None
     processing_status: str
     processing_error: str | None
-    metadata: dict
+    extra_metadata: dict
     created_at: datetime
 
 

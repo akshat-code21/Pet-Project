@@ -17,9 +17,11 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
 
+    # Sync DB driver (for PGVector — it uses sync SQLAlchemy)
+    "psycopg2-binary>=2.9",
+
     # Auth
     "supabase>=2.10",
-    "python-jose[cryptography]>=3.3",
 
     # LangChain stack
     "langchain-community==0.3.13",

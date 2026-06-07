@@ -57,9 +57,26 @@ export interface ContentItem {
   created_at: string
 }
 
+export interface PortfolioChange {
+  id: string
+  investor_id: string
+  ticker_symbol: string
+  company_name: string | null
+  cusip: string | null
+  change_type: 'new_position' | 'increased' | 'decreased' | 'closed' | 'unchanged'
+  shares_previous: number
+  shares_current: number
+  value_usd: number | null
+  percent_of_portfolio: number | null
+  filing_period: string
+  report_date: string | null
+  created_at: string
+}
+
 export interface Report {
   id: string
   investor_id: string | null
+  investor_name: string | null
   report_type: 'investor_report' | 'daily_digest' | 'event_report'
   title: string
   summary: string | null
@@ -77,7 +94,9 @@ export interface ReportDetail extends Report {
 export interface Alert {
   id: string
   investor_id: string | null
+  investor_name: string | null
   content_item_id: string | null
+  report_id: string | null
   alert_type: 'new_filing' | 'new_company_mention' | 'new_thesis' | 'high_conviction' | 'portfolio_change' | 'daily_digest_ready'
   title: string
   summary: string | null

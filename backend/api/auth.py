@@ -50,12 +50,45 @@ async def signup(body: SignUpRequest, db: AsyncSession = Depends(get_session)):
     try:
         resp = supabase.auth.sign_up({"email": body.email, "password": body.password})
     except Exception as e:
+        err = str(e).lower()
+        if "rate limit" in err or "email rate limit exceeded" in err:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    "Supabase email rate limit exceeded (free tier: 2 emails/hour). "
+                    "Fix: Supabase Dashboard → Authentication → Settings → "
+                    "disable 'Enable email confirmations' for local development."
+                ),
+            )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     if not resp.user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Signup failed")
 
-    # Upsert local user record
+    # When Supabase email confirmation is ON, session is None until the user
+    # clicks the confirmation link. Detect this and return a clear message.
+    if resp.session is None:
+        raise HTTPException(
+            status_code=status.HTTP_202_ACCEPTED,
+            detail=(
+                "Account created — check your email for a confirmation link before logging in. "
+                "To skip this during development: Supabase Dashboard → Authentication → Settings → "
+                "disable 'Enable email confirmations'."
+            ),
+        )
+
+    # Check if the user already exists in our local DB (e.g. re-signup after confirmation)
+    existing = (await db.execute(select(User).where(User.id == uuid.UUID(resp.user.id)))).scalar_one_or_none()
+    if existing:
+        return AuthResponse(
+            user=UserResponse(id=existing.id, email=existing.email, full_name=existing.full_name),
+            session=SessionData(
+                access_token=resp.session.access_token,
+                refresh_token=resp.session.refresh_token,
+            ),
+        )
+
+    # Create local user record
     user = User(
         id=uuid.UUID(resp.user.id),
         email=body.email,
@@ -68,8 +101,8 @@ async def signup(body: SignUpRequest, db: AsyncSession = Depends(get_session)):
     return AuthResponse(
         user=UserResponse(id=user.id, email=user.email, full_name=user.full_name),
         session=SessionData(
-            access_token=resp.session.access_token if resp.session else "",
-            refresh_token=resp.session.refresh_token if resp.session else None,
+            access_token=resp.session.access_token,
+            refresh_token=resp.session.refresh_token,
         ),
     )
 

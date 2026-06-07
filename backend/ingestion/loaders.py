@@ -9,7 +9,9 @@ Tier selection for websites:
   4. PDFPlumberLoader      — .pdf URLs
   5. SitemapLoader         — when source.config["has_sitemap"] = True
 """
+
 import asyncio
+import re
 from datetime import datetime, timezone
 
 import structlog
@@ -19,8 +21,23 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = structlog.get_logger()
 
+# YouTube video IDs are always exactly 11 characters: [A-Za-z0-9_-]
+# This naturally rejects channel IDs (24 chars, start with "UC") and
+# any other malformed IDs returned by yt-dlp for unavailable videos.
+YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
 
 # ─── Website loader ────────────────────────────────────────────────────────────
+
+
+def _is_binary_content(text: str) -> bool:
+    """Return True if text looks like binary garbage (PDF bytes, images, etc.)."""
+    if not text:
+        return True
+    sample = text[:500]
+    non_printable = sum(1 for c in sample if not c.isprintable() and c not in ("\n", "\r", "\t"))
+    return non_printable / max(len(sample), 1) > 0.15
+
 
 async def load_website(source) -> list[Document]:
     url: str = source.url
@@ -45,7 +62,21 @@ async def load_website(source) -> list[Document]:
     # Tier 2: archive / recursive crawl
     docs = await _load_recursive(url, base_meta)
     if docs:
-        return _enrich(docs, base_meta)
+        # Post-process: detect PDF links and binary content from recursive crawl
+        clean_docs = []
+        for doc in docs:
+            doc_url = doc.metadata.get("source", "") or ""
+            # If URL ends in .pdf, re-fetch with PDF loader
+            if doc_url.lower().endswith(".pdf"):
+                pdf_docs = await _load_pdf(doc_url, base_meta)
+                clean_docs.extend(pdf_docs)
+            elif _is_binary_content(doc.page_content):
+                # Binary content from non-PDF URL — skip it
+                logger.debug("Skipping binary document from recursive crawl", url=doc_url)
+                continue
+            else:
+                clean_docs.append(doc)
+        return _enrich(clean_docs, base_meta)
 
     # Tier 3: JS-heavy fallback
     docs = await _load_chromium([url], base_meta)
@@ -55,6 +86,7 @@ async def load_website(source) -> list[Document]:
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=5, max=30))
 async def _load_web_base(urls: list[str], base_meta: dict) -> list[Document]:
     from langchain_community.document_loaders import WebBaseLoader
+
     try:
         loader = WebBaseLoader(urls)
         return loader.load()
@@ -66,6 +98,7 @@ async def _load_web_base(urls: list[str], base_meta: dict) -> list[Document]:
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=5, max=20))
 async def _load_recursive(url: str, base_meta: dict) -> list[Document]:
     from langchain_community.document_loaders.recursive_url_loader import RecursiveUrlLoader
+
     try:
         loader = RecursiveUrlLoader(
             url,
@@ -82,6 +115,7 @@ async def _load_recursive(url: str, base_meta: dict) -> list[Document]:
 async def _load_chromium(urls: list[str], base_meta: dict) -> list[Document]:
     from langchain_community.document_loaders import AsyncChromiumLoader
     from langchain_community.document_transformers import Html2TextTransformer
+
     try:
         raw = AsyncChromiumLoader(urls).load()
         return Html2TextTransformer().transform_documents(raw)
@@ -92,17 +126,41 @@ async def _load_chromium(urls: list[str], base_meta: dict) -> list[Document]:
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=5, max=20))
 async def _load_pdf(url: str, base_meta: dict) -> list[Document]:
+    """Download a remote PDF to a temp file and parse with PDFPlumberLoader."""
+    import tempfile
+    import httpx
     from langchain_community.document_loaders import PDFPlumberLoader
+
     try:
-        return PDFPlumberLoader(url).load()
+        async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            f.write(resp.content)
+            tmp_path = f.name
+
+        docs = PDFPlumberLoader(tmp_path).load()
+        # Attach the original URL as the source
+        for doc in docs:
+            doc.metadata["source"] = url
+        return docs
     except Exception as e:
-        logger.warning("PDFPlumberLoader failed", url=url, error=str(e))
+        logger.warning("PDF load failed", url=url, error=str(e))
         return []
+    finally:
+        import os
+
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=5, max=20))
 async def _load_sitemap(sitemap_url: str, base_meta: dict) -> list[Document]:
     from langchain_community.document_loaders.sitemap import SitemapLoader
+
     try:
         return SitemapLoader(sitemap_url).load()
     except Exception as e:
@@ -111,6 +169,7 @@ async def _load_sitemap(sitemap_url: str, base_meta: dict) -> list[Document]:
 
 
 # ─── RSS loader ────────────────────────────────────────────────────────────────
+
 
 async def load_rss(source) -> list[Document]:
     """
@@ -151,30 +210,32 @@ async def load_rss(source) -> list[Document]:
 
 # ─── YouTube loader ────────────────────────────────────────────────────────────
 
+
 async def load_youtube(source) -> list[Document]:
     """
     Step 1: Discover new video URLs via yt-dlp (no API key needed).
-    Step 2: Load transcripts via YoutubeLoader (no API key needed).
+    Step 2: Load transcripts via youtube-transcript-api directly (v0.x and v1.x compatible).
     """
     import yt_dlp
-    from langchain_community.document_loaders import YoutubeLoader
-    from youtube_transcript_api import CouldNotRetrieveTranscript
 
     channel_url: str = source.url
     investor_id = str(source.investor_id)
     source_id = str(source.id)
 
     last_checked = source.last_checked_at
-    last_checked_yyyymmdd = (
-        last_checked.strftime("%Y%m%d") if last_checked else "19700101"
-    )
+    last_checked_yyyymmdd = last_checked.strftime("%Y%m%d") if last_checked else "19700101"
 
-    # Step 1: enumerate new video URLs
+    # On the very first sync, cap at 20 most-recent videos to avoid fetching
+    # the entire channel history. Subsequent syncs rely on the date filter.
+    is_first_sync = last_checked is None
     ydl_opts = {
         "quiet": True,
-        "extract_flat": True,
         "ignoreerrors": True,
+        "extract_flat": False,
+        **({"playlistend": 20} if is_first_sync else {"playlistend": 50}),
     }
+
+    # Step 1: enumerate new video URLs
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(channel_url, download=False)
@@ -186,53 +247,99 @@ async def load_youtube(source) -> list[Document]:
     video_urls = []
     for entry in entries:
         upload_date = entry.get("upload_date", "")
-        if upload_date >= last_checked_yyyymmdd:
-            vid_id = entry.get("id") or entry.get("url", "")
-            if vid_id:
-                video_urls.append(f"https://www.youtube.com/watch?v={vid_id}")
+        vid_id = entry.get("id") or ""
+        # Validate: YouTube video IDs are exactly 11 characters.
+        # yt-dlp with extract_flat=True + ignoreerrors=True may return
+        # entries where id is None (unavailable video) or malformed.
+        if not vid_id or not YOUTUBE_VIDEO_ID_RE.match(vid_id):
+            continue
+        # extract_flat=True often omits upload_date — treat missing date as
+        # "include this video" so we don't silently skip everything.
+        if not upload_date or upload_date >= last_checked_yyyymmdd:
+            video_urls.append(f"https://www.youtube.com/watch?v={vid_id}")
 
     logger.info("YouTube: found new videos", count=len(video_urls), channel=channel_url)
 
-    # Step 2: fetch transcripts
+    # Step 2: fetch transcripts directly (bypasses LangChain's YoutubeLoader
+    # which calls the removed list_transcripts() in youtube-transcript-api v1.x)
     docs = []
     for video_url in video_urls:
         await asyncio.sleep(1)  # courtesy rate limit
-        try:
-            video_docs = YoutubeLoader.from_youtube_url(
-                video_url, add_video_info=False
-            ).load()
-            for doc in video_docs:
-                doc.metadata.update({
-                    "source": video_url,
-                    "content_type": "video",
-                    "investor_id": investor_id,
-                    "source_id": source_id,
-                    "transcript_available": True,
-                })
-            docs.extend(video_docs)
-        except CouldNotRetrieveTranscript:
-            logger.warning("Transcript unavailable, using metadata only", url=video_url)
-            # Attempt to get title/description via yt-dlp
+        transcript_text = await asyncio.get_event_loop().run_in_executor(
+            None, _fetch_transcript, video_url
+        )
+        if transcript_text:
+            vid_id = video_url.split("v=")[-1]
+            docs.append(
+                Document(
+                    page_content=transcript_text,
+                    metadata={
+                        "source": video_url,
+                        "content_type": "video",
+                        "investor_id": investor_id,
+                        "source_id": source_id,
+                        "transcript_available": True,
+                    },
+                )
+            )
+        else:
+            # Fallback: use title + description from yt-dlp metadata
             title_desc = _get_video_metadata(video_url)
-            docs.append(Document(
-                page_content=title_desc,
-                metadata={
-                    "source": video_url,
-                    "content_type": "video",
-                    "investor_id": investor_id,
-                    "source_id": source_id,
-                    "transcript_available": False,
-                },
-            ))
-        except Exception as e:
-            logger.warning("YoutubeLoader failed", url=video_url, error=str(e))
+            if title_desc:
+                docs.append(
+                    Document(
+                        page_content=title_desc,
+                        metadata={
+                            "source": video_url,
+                            "content_type": "video",
+                            "investor_id": investor_id,
+                            "source_id": source_id,
+                            "transcript_available": False,
+                        },
+                    )
+                )
+            else:
+                logger.warning("No transcript or metadata available, skipping", url=video_url)
 
     return docs
+
+
+def _fetch_transcript(video_url: str) -> str:
+    """
+    Fetch YouTube transcript using youtube-transcript-api.
+    Supports v1.x (instance-based) and v0.x (class-based) APIs.
+    Returns empty string if no transcript is available.
+    """
+    from youtube_transcript_api import YouTubeTranscriptApi
+
+    video_id = video_url.split("v=")[-1].split("&")[0]
+
+    try:
+        # v1.x: instantiate then call fetch(video_id)
+        api = YouTubeTranscriptApi()
+        snippets = api.fetch(video_id)
+        return " ".join(s.text if hasattr(s, "text") else s.get("text", "") for s in snippets)
+    except TypeError:
+        pass
+    except Exception as e:
+        logger.debug("v1.x transcript fetch failed", video_id=video_id, error=str(e))
+
+    try:
+        # v0.x fallback: list_transcripts class method
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript = transcript_list.find_transcript(["en", "en-US", "en-GB"])
+        snippets = transcript.fetch()
+        return " ".join(s["text"] for s in snippets)
+    except Exception as e:
+        logger.debug("v0.x transcript fetch failed", video_id=video_id, error=str(e))
+
+    return ""
 
 
 def _get_video_metadata(video_url: str) -> str:
     """Fetch video title + description via yt-dlp for transcript fallback."""
     import yt_dlp
+
     try:
         with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
             info = ydl.extract_info(video_url, download=False)
@@ -244,6 +351,7 @@ def _get_video_metadata(video_url: str) -> str:
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _enrich(docs: list[Document], base_meta: dict) -> list[Document]:
     """Merge base_meta into each doc's metadata without overwriting existing keys."""

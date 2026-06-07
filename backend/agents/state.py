@@ -30,6 +30,8 @@ class PipelineState(TypedDict):
     content_type: str       # filing | article | video | newsletter | website_page
     raw_text: str
     source_url: str
+    investor_name: Optional[str]
+    filing_period: Optional[str]
 
     # Processing
     cleaned_text: str

@@ -95,7 +95,7 @@ async def _create_alerts_async(
                     summary="A new 13F SEC filing has been processed and parsed.",
                     severity=severity,
                     score=score,
-                    metadata={"content_type": content_type},
+                    extra_metadata={"content_type": content_type},
                 ))
 
         # 2. Per-entity alerts
@@ -124,7 +124,7 @@ async def _create_alerts_async(
                     summary=context[:300] if context else f"{name} mentioned.",
                     severity=severity,
                     score=score,
-                    metadata={"ticker": ticker, "entity_name": name, "sentiment": sentiment},
+                    extra_metadata={"ticker": ticker, "entity_name": name, "sentiment": sentiment},
                 ))
 
             if conviction == "high":
@@ -142,7 +142,7 @@ async def _create_alerts_async(
                         summary=context[:300],
                         severity=severity,
                         score=score,
-                        metadata={"ticker": ticker, "entity_name": name},
+                        extra_metadata={"ticker": ticker, "entity_name": name},
                     ))
 
         # 3. Thesis alerts
@@ -159,7 +159,7 @@ async def _create_alerts_async(
                     summary=thesis.get("thesis_summary", "")[:300],
                     severity=severity,
                     score=score,
-                    metadata={"ticker": thesis.get("ticker"), "company": thesis.get("company")},
+                    extra_metadata={"ticker": thesis.get("ticker"), "company": thesis.get("company")},
                 ))
 
         for alert in alerts_to_create:

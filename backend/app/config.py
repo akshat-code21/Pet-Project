@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
 
     @property
+    def database_url_sync(self) -> str:
+        """Derive a sync-friendly connection string from the async URL.
+        PGVector (langchain-postgres) calls synchronous DB operations
+        internally, so it needs a sync driver (psycopg2) instead of asyncpg."""
+        return self.database_url.replace("+asyncpg", "+psycopg2")
+
+    @property
     def is_production(self) -> bool:
         return self.app_env == "production"
 

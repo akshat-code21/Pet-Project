@@ -94,7 +94,7 @@ async def _generate_digest_for_user(user) -> bool:
     for item in new_items[:20]:  # cap at 20 for token budget
         name = investor_map.get(str(item.investor_id), "Unknown")
         snippet = (item.cleaned_text or item.raw_text or "")[:500]
-        url = (item.metadata or {}).get("source_url", "")
+        url = (item.extra_metadata or {}).get("source_url", "")
         content_summaries.append(f"[{name}] ({item.content_type}) {url}\n{snippet}")
 
     content_block = "\n\n---\n\n".join(content_summaries)
@@ -111,6 +111,7 @@ async def _generate_digest_for_user(user) -> bool:
             content_block=content_block,
             item_count=len(new_items),
         )
+        markdown = clean_markdown_fences(markdown)
     except Exception as e:
         logger.error("Digest LLM call failed", user_id=user_id, error=str(e))
         return False
@@ -133,6 +134,19 @@ async def _generate_digest_for_user(user) -> bool:
         report_id=report_id,
     )
     return True
+
+
+def clean_markdown_fences(content: str) -> str:
+    cleaned = content.strip()
+    if cleaned.startswith("```markdown"):
+        cleaned = cleaned[11:].strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:].strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+    return cleaned.strip()
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=10, max=60))
@@ -171,7 +185,23 @@ async def _save_digest_report(
 
     title_line = next((line for line in markdown.splitlines() if line.startswith("# ")), "Daily Digest")
     title = title_line.lstrip("# ").strip()
-    summary_lines = [l for l in markdown.splitlines() if l and not l.startswith("#")]
+    
+    # Extract actual summary lines by ignoring metadata headers and hr tags
+    summary_lines = []
+    for line in markdown.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            continue
+        if line.startswith("---"):
+            continue
+        if line.startswith("**Date:**") or line.startswith("**Investors with activity:**") or line.startswith("Date:"):
+            continue
+        if line.startswith("```"):
+            continue
+        summary_lines.append(line)
+        
     summary = " ".join(summary_lines[:3])[:300] if summary_lines else ""
 
     report = Report(
@@ -194,3 +224,4 @@ async def _save_digest_report(
 
     logger.info("Digest report saved", user_id=user_id, report_id=report_id)
     return report_id
+

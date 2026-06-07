@@ -20,6 +20,19 @@ logger = structlog.get_logger()
 REPORT_TRIGGER_TYPES = {"filing", "article", "newsletter", "video"}
 
 
+def clean_markdown_fences(content: str) -> str:
+    cleaned = content.strip()
+    if cleaned.startswith("```markdown"):
+        cleaned = cleaned[11:].strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:].strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+    return cleaned.strip()
+
+
 def report_generator_node(state: PipelineState) -> PipelineState:
     if not state.get("report_triggered"):
         return {**state, "report_generated": False}
@@ -63,6 +76,7 @@ def report_generator_node(state: PipelineState) -> PipelineState:
             source_links=source_links,
         )
         markdown = _generate_report(client, prompt)
+        markdown = clean_markdown_fences(markdown)
     except Exception as e:
         logger.error("Report generation failed", error=str(e))
         return {**state, "report_generated": False, "error": str(e)}
@@ -122,7 +136,23 @@ async def _save_report_async(
 
     title_line = next((line for line in markdown.splitlines() if line.startswith("# ")), "Intelligence Report")
     title = title_line.lstrip("# ").strip()
-    summary_lines = [l for l in markdown.splitlines() if l and not l.startswith("#")]
+    
+    # Extract actual summary lines by ignoring metadata headers and hr tags
+    summary_lines = []
+    for line in markdown.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            continue
+        if line.startswith("---"):
+            continue
+        if line.startswith("**Generated:**") or line.startswith("**Period:**") or line.startswith("**Sources analyzed:**"):
+            continue
+        if line.startswith("```"):
+            continue
+        summary_lines.append(line)
+        
     summary = " ".join(summary_lines[:3])[:300] if summary_lines else ""
 
     async with AsyncSessionLocal() as db:
@@ -140,3 +170,4 @@ async def _save_report_async(
         db.add(report)
         await db.commit()
         logger.info("Report saved", investor_id=investor_id)
+
