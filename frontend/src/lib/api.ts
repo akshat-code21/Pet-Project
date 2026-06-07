@@ -85,3 +85,10 @@ export const alertsApi = {
 export const searchApi = {
   query: (data: SearchRequest) => apiClient.post<SearchResponse>('/search', data),
 }
+
+// ── Admin/Jobs ────────────────────────────────────────────────────────────────
+export const adminApi = {
+  getStatus: () => apiClient.get<{ data: { scheduler_running: boolean; jobs: any[]; pending_content_items: number } }>('/admin/jobs/status'),
+  triggerJob: (job: string) => apiClient.post<{ message: string; result?: any; error?: string }>('/admin/jobs/trigger', { job }),
+}
+
