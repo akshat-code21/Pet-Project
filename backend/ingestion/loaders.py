@@ -54,23 +54,91 @@ async def load_website(source) -> list[Document]:
     if url.lower().endswith(".pdf"):
         return await _load_pdf(url, base_meta)
 
-    # Tier 1: simple static page
-    docs = await _load_web_base([url], base_meta)
-    if docs and len(docs[0].page_content) >= 200:
-        return _enrich(docs, base_meta)
+    # Tier 1: simple static page — but first detect index/listing pages.
+    # Some pages (e.g. report listing with monthly PDF links) pass the old
+    # ≥200-char threshold because nav-bar text + link labels add up, yet
+    # contain no substantive article content.  We fetch the raw HTML once
+    # and run a smarter heuristic: if the page has many hyperlinks but
+    # very little extracted article text it is an index page, and we should
+    # fall through to the recursive link-following tier.
+    is_index_page = False
+    data_links = 0
+    raw_html: str | None = None
+    try:
+        import httpx
+        async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                raw_html = resp.text
+    except Exception as e:
+        logger.debug("Pre-fetch for index detection failed", url=url, error=str(e))
+
+    if raw_html:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(raw_html, "html.parser")
+
+        # Count meaningful outbound links and data-file links (.pdf, .xml, etc.)
+        _DATA_EXT = (".pdf", ".xml", ".csv", ".xlsx", ".xls", ".doc", ".docx")
+        total_links = 0
+        data_links = 0
+        for a in soup.find_all("a"):
+            href = (a.get("href") or "").strip()
+            if not href or href.startswith(("#", "mailto:", "javascript:")):
+                continue
+            total_links += 1
+            if href.lower().split("?", 1)[0].endswith(_DATA_EXT):
+                data_links += 1
+
+        # Use trafilatura for article-quality text extraction (ignores nav/boilerplate)
+        article_text = (trafilatura.extract(raw_html) or "").strip()
+
+        # Heuristic 1: page is predominantly a file index (many data-file links)
+        # e.g. Pershing Square reports page: 420 PDFs out of 448 total links
+        if data_links >= 5:
+            is_index_page = True
+            logger.info(
+                "Detected data-file index page — will follow links",
+                url=url, total_links=total_links, data_links=data_links,
+            )
+        # Heuristic 2: many links but very little article text per link
+        # (pages whose "article text" is just disclaimers/boilerplate)
+        elif total_links >= 10 and (len(article_text) / max(total_links, 1)) < 50:
+            is_index_page = True
+            logger.info(
+                "Detected link-heavy index page — will follow links",
+                url=url, total_links=total_links, article_chars=len(article_text),
+                chars_per_link=len(article_text) / max(total_links, 1),
+            )
+
+    if not is_index_page:
+        docs = await _load_web_base([url], base_meta)
+        if docs and len(docs[0].page_content) >= 200:
+            return _enrich(docs, base_meta)
 
     # Tier 1.5: index-style page (mostly hyperlinks, little text).
-    # Tier 1 returned thin/empty content — the real data likely lives in
-    # linked child pages (e.g. an SEC filing-index that links to infotable.xml).
+    # The real data likely lives in linked child pages (e.g. an SEC filing-
+    # index that links to infotable.xml, or a report listing with PDF links).
     # Follow those links recursively and capture the structured data.
     if source.config.get("follow_links", True):
         from ingestion.recursive_loader import load_recursive_links
 
+        # When we detected a data-file-heavy index, auto-scale max_pages so
+        # we actually fetch all the linked documents, and limit depth to 1
+        # (no need to crawl further from individual PDFs/XMLs).
+        cfg_max_pages = source.config.get("max_pages")
+        cfg_max_depth = source.config.get("max_depth")
+        if is_index_page and data_links > 0:
+            effective_max_pages = int(cfg_max_pages) if cfg_max_pages else min(data_links + 10, 500)
+            effective_max_depth = int(cfg_max_depth) if cfg_max_depth else 1
+        else:
+            effective_max_pages = int(cfg_max_pages) if cfg_max_pages else 40
+            effective_max_depth = int(cfg_max_depth) if cfg_max_depth else 2
+
         link_docs = await load_recursive_links(
             url,
             base_meta,
-            max_depth=int(source.config.get("max_depth", 2)),
-            max_pages=int(source.config.get("max_pages", 40)),
+            max_depth=effective_max_depth,
+            max_pages=effective_max_pages,
             same_domain=bool(source.config.get("same_domain", True)),
         )
         if link_docs:

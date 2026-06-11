@@ -279,13 +279,13 @@ def _extract_links(soup: BeautifulSoup, base_url: str) -> list[str]:
 
 
 def _prioritise_data_links(links: list[str]) -> list[str]:
-    """Push likely data files (.xml, .txt, infotable, primary_doc) to the front."""
+    """Push likely data files (.xml, .pdf, .txt, infotable, primary_doc) to the front."""
 
     def score(u: str) -> int:
         lu = u.lower()
         if "infotable" in lu or "informationtable" in lu:
             return 0
-        if lu.endswith(".xml"):
+        if lu.endswith(".xml") or lu.endswith(".pdf"):
             return 1
         if "primary_doc" in lu:
             return 2
