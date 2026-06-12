@@ -32,3 +32,4 @@ class ReportDetailResponse(ReportResponse):
 class ReportGenerateRequest(BaseModel):
     investor_id: uuid.UUID
     report_type: ReportType = "investor_report"
+    period_days: int = 30

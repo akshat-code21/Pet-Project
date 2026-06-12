@@ -1,6 +1,6 @@
 """
 Thesis extractor node.
-Runs on full cleaned_text (not chunks) for holistic understanding.
+Uses a sliding-window approach over cleaned_text for full-document coverage.
 Uses GPT-4o for quality. Skipped for filing content_type.
 """
 import json
@@ -14,7 +14,28 @@ from agents.state import InvestmentThesis, PipelineState
 from app.config import get_settings
 
 logger = structlog.get_logger()
-MAX_CHARS = 16_000
+WINDOW_CHARS = 16_000
+WINDOW_OVERLAP = 2_000
+
+
+def _deduplicate_theses(all_theses: list[InvestmentThesis]) -> list[InvestmentThesis]:
+    """Merge theses from multiple windows, keeping highest conviction score per company/ticker."""
+    seen: dict[str, InvestmentThesis] = {}
+
+    for thesis in all_theses:
+        key = (thesis.get("company") or "").lower()
+        ticker = (thesis.get("ticker") or "").upper()
+        if ticker:
+            key = ticker
+
+        existing = seen.get(key)
+        if existing is None:
+            seen[key] = thesis
+        else:
+            if (thesis.get("conviction_score") or 0) > (existing.get("conviction_score") or 0):
+                seen[key] = thesis
+
+    return list(seen.values())
 
 
 def thesis_extractor_node(state: PipelineState) -> PipelineState:
@@ -26,19 +47,43 @@ def thesis_extractor_node(state: PipelineState) -> PipelineState:
     if not cleaned or len(cleaned) < 200:
         return {**state, "theses": []}
 
-    # Truncate for context window safety
-    text_input = cleaned[:MAX_CHARS]
-    if len(cleaned) > MAX_CHARS:
-        logger.info("thesis_extractor: truncating text", original_len=len(cleaned))
-
     settings = get_settings()
     client = OpenAI(api_key=settings.openai_api_key)
 
-    try:
-        theses = _extract_theses(client, text_input)
-    except Exception as e:
-        logger.error("Thesis extraction failed", error=str(e))
-        return {**state, "theses": [], "error": str(e)}
+    # Sliding-window extraction for full-document coverage
+    all_theses: list[InvestmentThesis] = []
+    offset = 0
+    window_idx = 0
+
+    while offset < len(cleaned):
+        window_text = cleaned[offset : offset + WINDOW_CHARS]
+        if len(window_text) < 200:
+            break  # remaining text too short to extract from
+
+        try:
+            theses = _extract_theses(client, window_text)
+            all_theses.extend(theses)
+            logger.debug(
+                "thesis_extractor: window processed",
+                window_idx=window_idx,
+                theses_found=len(theses),
+            )
+        except Exception as e:
+            logger.error("Thesis extraction window failed", window_idx=window_idx, error=str(e))
+            # Continue with remaining windows even if one fails
+
+        offset += WINDOW_CHARS - WINDOW_OVERLAP
+        window_idx += 1
+
+    if window_idx > 1:
+        logger.info(
+            "thesis_extractor: sliding window complete",
+            windows=window_idx,
+            total_theses_raw=len(all_theses),
+        )
+
+    # Deduplicate across windows
+    theses = _deduplicate_theses(all_theses)
 
     # Merge conviction scores back into entities
     entities = state.get("entities", [])

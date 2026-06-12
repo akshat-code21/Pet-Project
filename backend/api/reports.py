@@ -51,5 +51,5 @@ async def generate_report(
     db: AsyncSession = Depends(get_session),
 ):
     import asyncio
-    asyncio.create_task(svc.generate_investor_report(body.investor_id, current_user.id))
+    asyncio.create_task(svc.generate_investor_report(body.investor_id, current_user.id, body.period_days))
     return {"message": "report generation queued", "job_id": str(body.investor_id)}
